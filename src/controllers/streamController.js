@@ -389,6 +389,23 @@ export const proxyLive = async (req, res) => {
     if (req.path.endsWith('.m3u8')) reqExt = 'm3u8';
     if (req.path.endsWith('.mp4')) reqExt = 'mp4';
 
+    if (user.direct_playlist) {
+        let redirectUrl = null;
+        if (channel.metadata) {
+            try {
+                const meta = typeof channel.metadata === 'string' ? JSON.parse(channel.metadata) : channel.metadata;
+                if (meta && meta.original_url) redirectUrl = String(meta.original_url);
+            } catch(e) { /* fall through to Xtream URL */ }
+        }
+        if (!redirectUrl && channel.provider_url && channel.provider_user && channel.provider_pass && channel.remote_stream_id) {
+            const base = channel.provider_url.replace(/\/+$/, '');
+            const pass = decrypt(channel.provider_pass);
+            const ext = reqExt === 'm3u8' ? 'm3u8' : 'ts';
+            redirectUrl = `${base}/live/${encodeURIComponent(channel.provider_user)}/${encodeURIComponent(pass)}/${channel.remote_stream_id}.${ext}`;
+        }
+        if (redirectUrl) return res.redirect(302, redirectUrl);
+    }
+
     const wantsTranscode = (req.query.transcode === 'true');
 
     // Optimization: Skip streamManager overhead for playlist requests (unless transcoding)
@@ -805,6 +822,22 @@ export const proxyMovie = async (req, res) => {
     }
 
     const sessionName = `${channel.name} (VOD)`;
+
+    if (user.direct_playlist) {
+        let redirectUrl = null;
+        if (channel.metadata) {
+            try {
+                const meta = typeof channel.metadata === 'string' ? JSON.parse(channel.metadata) : channel.metadata;
+                if (meta && meta.original_url) redirectUrl = String(meta.original_url);
+            } catch(e) { /* fall through to Xtream URL */ }
+        }
+        if (!redirectUrl && channel.provider_url && channel.provider_user && channel.provider_pass && channel.remote_stream_id) {
+            const base = channel.provider_url.replace(/\/+$/, '');
+            const pass = decrypt(channel.provider_pass);
+            redirectUrl = `${base}/movie/${encodeURIComponent(channel.provider_user)}/${encodeURIComponent(pass)}/${channel.remote_stream_id}.${ext}`;
+        }
+        if (redirectUrl) return res.redirect(302, redirectUrl);
+    }
 
     if (user.max_connections > 0) {
         const isSessionActiveForUser = await streamManager.isSessionActive(user.id, req.ip, sessionName, channel.provider_id);
