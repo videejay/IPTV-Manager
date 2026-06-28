@@ -782,6 +782,20 @@ export function migrateUserNotes(db) {
   }
 }
 
+export function migrateUserDirectPlaylist(db) {
+  try {
+    const tableInfo = db.prepare("PRAGMA table_info(users)").all();
+    const columns = tableInfo.map(c => c.name);
+
+    if (!columns.includes('direct_playlist')) {
+      db.exec('ALTER TABLE users ADD COLUMN direct_playlist INTEGER DEFAULT 0');
+      console.log('✅ DB Migration: direct_playlist column added to users');
+    }
+  } catch (e) {
+    console.error('User direct_playlist migration error:', e);
+  }
+}
+
 export function migrateProviderUseMappedEpgIcon(db) {
   try {
     const tableInfo = db.prepare("PRAGMA table_info(providers)").all();

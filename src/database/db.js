@@ -85,7 +85,8 @@ export function initDb(isPrimary) {
       max_connections INTEGER DEFAULT 0,
       expiry_date INTEGER,
       allowed_countries TEXT,
-      notes TEXT
+      notes TEXT,
+      direct_playlist INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS temporary_tokens (
@@ -286,6 +287,7 @@ export function initDb(isPrimary) {
             migrations.migrateUserChannelsCustomName(db);
             migrations.migrateUserChannelsIsHidden(db);
             migrations.migrateUserNotes(db);
+            migrations.migrateUserDirectPlaylist(db);
             if (typeof migrations.migrateProviderUseMappedEpgIcon === 'function') {
                 migrations.migrateProviderUseMappedEpgIcon(db);
             }

@@ -19,7 +19,7 @@ export const getUsers = (req, res) => {
     // ⚡ Bolt: Replace .all().map() with .iterate() to eliminate intermediate V8 array allocation
     // 🎯 Why: Loading a massive list of users into memory, only to map it into another array, causes double memory allocation and GC pressure.
     // 📊 Impact: Lowers peak memory usage and garbage collection overhead, especially on instances with many users.
-    const stmt = db.prepare('SELECT id, username, password, plain_password, is_active, webui_access, hdhr_enabled, hdhr_token, max_connections, expiry_date, allowed_countries, notes FROM users ORDER BY id');
+    const stmt = db.prepare('SELECT id, username, password, plain_password, is_active, webui_access, hdhr_enabled, hdhr_token, max_connections, expiry_date, allowed_countries, notes, direct_playlist FROM users ORDER BY id');
     const result = [];
 
     for (const u of stmt.iterate()) {
@@ -43,7 +43,8 @@ export const getUsers = (req, res) => {
             max_connections: u.max_connections || 0,
             expiry_date: u.expiry_date,
             allowed_countries: u.allowed_countries,
-            notes: u.notes
+            notes: u.notes,
+            direct_playlist: u.direct_playlist || 0
         });
     }
 
@@ -54,7 +55,7 @@ export const getUsers = (req, res) => {
 export const createUser = async (req, res) => {
   try {
     if (!req.user.is_admin) return res.status(403).json({error: 'Access denied'});
-    const { username, password, webui_access, hdhr_enabled, copy_from_user_id, max_connections, expiry_date, allowed_countries, notes } = req.body;
+    const { username, password, webui_access, hdhr_enabled, copy_from_user_id, max_connections, expiry_date, allowed_countries, notes, direct_playlist } = req.body;
 
     // Validation
     if (!username || !password) {
@@ -135,7 +136,7 @@ export const createUser = async (req, res) => {
     // Use transaction for atomic creation + copying
     db.transaction(() => {
         // Insert user
-        const info = db.prepare('INSERT INTO users (username, password, plain_password, webui_access, hdhr_enabled, hdhr_token, max_connections, expiry_date, allowed_countries, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        const info = db.prepare('INSERT INTO users (username, password, plain_password, webui_access, hdhr_enabled, hdhr_token, max_connections, expiry_date, allowed_countries, notes, direct_playlist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
             u,
             hashedPassword,
             encryptedPlainPassword,
@@ -145,7 +146,8 @@ export const createUser = async (req, res) => {
             (max_connections !== undefined && max_connections !== '') ? Number(max_connections) : 0,
             expiry_date || null,
             (allowed_countries && allowed_countries !== 'null' && allowed_countries !== 'undefined') ? allowed_countries : null,
-            notes ? notes.trim() : null
+            notes ? notes.trim() : null,
+            direct_playlist ? 1 : 0
         );
         const newUserId = info.lastInsertRowid;
 
@@ -363,7 +365,7 @@ export const updateUser = async (req, res) => {
   try {
     if (!req.user.is_admin) return res.status(403).json({error: 'Access denied'});
     const id = Number(req.params.id);
-    const { username, password, webui_access, hdhr_enabled, max_connections, expiry_date, allowed_countries, notes } = req.body;
+    const { username, password, webui_access, hdhr_enabled, max_connections, expiry_date, allowed_countries, notes, direct_playlist } = req.body;
 
     // Get existing user
     const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
@@ -455,13 +457,18 @@ export const updateUser = async (req, res) => {
         params.push(notes ? notes.trim() : null);
     }
 
+    if (direct_playlist !== undefined) {
+        updates.push('direct_playlist = ?');
+        params.push(direct_playlist ? 1 : 0);
+    }
+
     if (updates.length === 0) return res.json({success: true}); // Nothing to update
 
     params.push(id);
     db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
     // Security Enhancement: Terminate active streams if security credentials/access changed
-    if (password || expiry_date !== undefined || webui_access !== undefined || hdhr_enabled !== undefined || max_connections !== undefined || allowed_countries !== undefined) {
+    if (password || expiry_date !== undefined || webui_access !== undefined || hdhr_enabled !== undefined || max_connections !== undefined || allowed_countries !== undefined || direct_playlist !== undefined) {
         try {
             const activeStreams = db.prepare('SELECT id FROM current_streams WHERE user_id = ?').all(id);
             for (const stream of activeStreams) {

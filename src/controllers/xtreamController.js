@@ -125,6 +125,50 @@ const streamJsonResponse = (res, stmt, params, mapFn) => {
   res.end();
 };
 
+// Cache decrypted provider passwords for the duration of a single playlist request.
+// A user may have many channels across only a handful of providers; decrypting
+// the same encrypted blob per row would multiply CPU cost for no gain.
+const buildProviderPasswordCache = () => {
+  const cache = new Map();
+  return (providerId, encryptedPass) => {
+    if (cache.has(providerId)) return cache.get(providerId);
+    const plain = encryptedPass ? decrypt(encryptedPass) : '';
+    cache.set(providerId, plain);
+    return plain;
+  };
+};
+
+// Build the upstream provider URL for a channel row when the user has direct_playlist enabled.
+// Returns null if no usable URL can be produced (caller should fall back to proxy URL).
+const buildDirectStreamUrl = (ch, getProviderPass, defaultLiveExt) => {
+  // M3U-imported channels: use the original URL persisted in metadata during sync.
+  if (ch.metadata) {
+    try {
+      const meta = typeof ch.metadata === 'string' ? JSON.parse(ch.metadata) : ch.metadata;
+      if (meta && meta.original_url) return String(meta.original_url);
+    } catch (e) { /* fall through to Xtream reconstruction */ }
+  }
+
+  if (!ch.provider_url || !ch.provider_user || !ch.provider_pass || !ch.remote_stream_id) {
+    return null;
+  }
+
+  const base = String(ch.provider_url).replace(/\/+$/, '');
+  const encUser = encodeURIComponent(ch.provider_user);
+  const encPass = encodeURIComponent(getProviderPass(ch.provider_id, ch.provider_pass));
+  const streamType = ch.stream_type || 'live';
+
+  if (streamType === 'movie') {
+    const ext = ch.mime_type || 'mp4';
+    return `${base}/movie/${encUser}/${encPass}/${ch.remote_stream_id}.${ext}`;
+  }
+  if (streamType === 'series') {
+    const ext = ch.mime_type || 'mp4';
+    return `${base}/series/${encUser}/${encPass}/${ch.remote_stream_id}.${ext}`;
+  }
+  return `${base}/live/${encUser}/${encPass}/${ch.remote_stream_id}.${defaultLiveExt}`;
+};
+
 const getShareScope = (user) => {
   const isShareGuest = !!user?.is_share_guest;
   const allowedChannelIds = isShareGuest
@@ -661,14 +705,23 @@ export const getPlaylist = async (req, res) => {
     const shareScope = getShareScope(user);
     if (shareScope.isExpired) return res.sendStatus(403);
 
+    const useDirect = !!user.direct_playlist;
+
     let query = `
       SELECT uc.id as user_channel_id, uc.custom_name, uc.user_category_id, pc.name, pc.logo, pc.epg_channel_id, pc.stream_type, pc.mime_type,
         pc.tv_archive,
         pc.tv_archive_duration,
-             cat.name as category_name, map.epg_channel_id as manual_epg_id
+        pc.remote_stream_id,
+        pc.metadata,
+        p.id as provider_id,
+        p.url as provider_url,
+        p.username as provider_user,
+        p.password as provider_pass,
+        cat.name as category_name, map.epg_channel_id as manual_epg_id
       FROM user_categories cat
       JOIN user_channels uc ON cat.id = uc.user_category_id
       JOIN provider_channels pc ON pc.id = uc.provider_channel_id
+      JOIN providers p ON p.id = pc.provider_id
       LEFT JOIN epg_channel_mappings map ON map.provider_channel_id = pc.id
       WHERE cat.user_id = ? AND uc.is_hidden = 0`;
     let params = [user.id];
@@ -678,6 +731,7 @@ export const getPlaylist = async (req, res) => {
       ORDER BY cat.sort_order ASC, uc.sort_order ASC
     `;
     const stmt = db.prepare(query);
+    const getProviderPass = buildProviderPasswordCache();
 
     const baseUrl = getBaseUrl(req);
     let header = '#EXTM3U';
@@ -721,15 +775,19 @@ export const getPlaylist = async (req, res) => {
       const streamId = ch.user_channel_id;
 
       let streamUrl;
-      if (ch.stream_type === 'movie') {
+      const liveExt = output === 'hls' ? 'm3u8' : 'ts';
+      const directUrl = useDirect ? buildDirectStreamUrl(ch, getProviderPass, liveExt) : null;
+      if (directUrl) {
+        streamUrl = directUrl;
+      } else if (ch.stream_type === 'movie') {
          streamUrl = moviePrefix + streamId + '.' + (ch.mime_type || 'mp4');
+         if (useTokenAuth) streamUrl += tokenParam;
       } else if (ch.stream_type === 'series') {
          streamUrl = seriesPrefix + streamId + '.' + (ch.mime_type || 'mp4');
+         if (useTokenAuth) streamUrl += tokenParam;
       } else {
-         streamUrl = livePrefix + streamId + '.' + (output === 'hls' ? 'm3u8' : 'ts');
-      }
-      if (useTokenAuth) {
-        streamUrl += tokenParam;
+         streamUrl = livePrefix + streamId + '.' + liveExt;
+         if (useTokenAuth) streamUrl += tokenParam;
       }
 
       const safeName = sanitizeM3uName(name);
@@ -830,8 +888,9 @@ export const playerChannelsJson = async (req, res) => {
 
     const tokenParam = req.query.token ? `?token=${encodeURIComponent(req.query.token)}` : '';
     const host = getBaseUrl(req);
-    // Cache key incorporates whether it's a guest, the user ID, the host string, and token
-    const cacheKey = `${user.is_share_guest ? 'guest' : 'user'}_${user.id}_${host}_${tokenParam}`;
+    const useDirect = !!user.direct_playlist;
+    // Cache key incorporates whether it's a guest, the user ID, the host string, token, and direct flag
+    const cacheKey = `${user.is_share_guest ? 'guest' : 'user'}_${user.id}_${host}_${tokenParam}_${useDirect ? 'd' : 'p'}`;
 
     if (channelsJsonCache.has(cacheKey)) {
       res.setHeader('Content-Type', 'application/json');
@@ -854,12 +913,17 @@ export const playerChannelsJson = async (req, res) => {
         pc.tv_archive,
         pc.tv_archive_duration,
         pc.mime_type,
+        pc.metadata,
         json_extract(pc.metadata, '$.drm.license_type') as drm_license_type,
         json_extract(pc.metadata, '$.drm.license_key') as drm_license_key,
         pc.plot, pc."cast", pc.director, pc.genre, pc.releaseDate, pc.rating, pc.episode_run_time,
         cat.name as category_name,
         map.epg_channel_id as manual_epg_id,
-        p.use_mapped_epg_icon
+        p.use_mapped_epg_icon,
+        p.id as provider_id,
+        p.url as provider_url,
+        p.username as provider_user,
+        p.password as provider_pass
       FROM user_categories cat
       JOIN user_channels uc ON cat.id = uc.user_category_id
       JOIN provider_channels pc ON pc.id = uc.provider_channel_id
@@ -869,6 +933,7 @@ export const playerChannelsJson = async (req, res) => {
       -- ⚡ Bolt: Optimize ORDER BY clause using composite index to remove temporary B-tree allocation
       ORDER BY cat.sort_order ASC, uc.sort_order ASC
     `);
+    const getProviderPass = buildProviderPasswordCache();
 
     let allowedSet = null;
     let isExpired = false;
@@ -912,12 +977,15 @@ export const playerChannelsJson = async (req, res) => {
 
           let streamUrl;
           let type = 'live';
+          if (ch.stream_type === 'movie') type = 'movie';
+          else if (ch.stream_type === 'series') type = 'series';
 
-          if (ch.stream_type === 'movie') {
-             type = 'movie';
+          const directUrl = useDirect ? buildDirectStreamUrl(ch, getProviderPass, 'ts') : null;
+          if (directUrl) {
+            streamUrl = directUrl;
+          } else if (ch.stream_type === 'movie') {
              streamUrl = moviePrefix + ch.user_channel_id + '.' + (ch.mime_type || 'mp4') + tokenParam;
           } else if (ch.stream_type === 'series') {
-             type = 'series';
              streamUrl = seriesPrefix + ch.user_channel_id + '.' + (ch.mime_type || 'mp4') + tokenParam;
           } else {
              if (ch.mime_type === 'mpd') {
@@ -979,6 +1047,7 @@ export const playerPlaylist = async (req, res) => {
     const user = await getXtreamUser(req);
     if (!user) return res.status(401).send('Unauthorized');
 
+    const useDirect = !!user.direct_playlist;
     const stmt = db.prepare(`
       SELECT
         uc.id as user_channel_id,
@@ -991,19 +1060,26 @@ export const playerPlaylist = async (req, res) => {
         pc.tv_archive,
         pc.tv_archive_duration,
         pc.mime_type,
+        pc.metadata,
         json_extract(pc.metadata, '$.drm.license_type') as drm_license_type,
         json_extract(pc.metadata, '$.drm.license_key') as drm_license_key,
         pc.plot, pc."cast", pc.director, pc.genre, pc.releaseDate, pc.rating, pc.episode_run_time,
         cat.name as category_name,
-        map.epg_channel_id as manual_epg_id
+        map.epg_channel_id as manual_epg_id,
+        p.id as provider_id,
+        p.url as provider_url,
+        p.username as provider_user,
+        p.password as provider_pass
       FROM user_categories cat
       JOIN user_channels uc ON cat.id = uc.user_category_id
       JOIN provider_channels pc ON pc.id = uc.provider_channel_id
+      JOIN providers p ON p.id = pc.provider_id
       LEFT JOIN epg_channel_mappings map ON map.provider_channel_id = pc.id
       WHERE cat.user_id = ? AND pc.stream_type != 'series' AND uc.is_hidden = 0
       -- ⚡ Bolt: Optimize ORDER BY clause using composite index to remove temporary B-tree allocation
       ORDER BY cat.sort_order ASC, uc.sort_order ASC
     `);
+    const getProviderPass = buildProviderPasswordCache();
 
     let allowedSet = null;
     let isExpired = false;
@@ -1048,7 +1124,10 @@ export const playerPlaylist = async (req, res) => {
       const name = ch.name || 'Unknown';
 
       let streamUrl;
-      if (ch.stream_type === 'movie') {
+      const directUrl = useDirect ? buildDirectStreamUrl(ch, getProviderPass, 'ts') : null;
+      if (directUrl) {
+        streamUrl = directUrl;
+      } else if (ch.stream_type === 'movie') {
          streamUrl = moviePrefix + ch.user_channel_id + '.' + (ch.mime_type || 'mp4') + tokenParam;
       } else if (ch.stream_type === 'series') {
          streamUrl = seriesPrefix + ch.user_channel_id + '.' + (ch.mime_type || 'mp4') + tokenParam;

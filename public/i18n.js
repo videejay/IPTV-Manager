@@ -491,6 +491,7 @@ const translations = {
 
     // Missing
     enableHDHomeRun: 'Enable HDHomeRun',
+    directPlaylist: 'Direct Playlist (bypass proxy, expose provider credentials)',
     useUrlToConfigurePlex: 'Use the URL below to configure Plex DVR or Emby Live TV.',
     note: 'Note:',
     featureEmulatesHDHomeRun: 'This feature emulates an HDHomeRun tuner.',
@@ -999,6 +1000,7 @@ const translations = {
 
     // Missing
     enableHDHomeRun: 'HDHomeRun aktivieren',
+    directPlaylist: 'Direkte Playlist (Proxy umgehen, Provider-Zugangsdaten offenlegen)',
     useUrlToConfigurePlex: 'Verwenden Sie die folgende URL, um Plex DVR oder Emby Live TV zu konfigurieren.',
     note: 'Hinweis:',
     featureEmulatesHDHomeRun: 'Diese Funktion emuliert einen HDHomeRun-Tuner.',
@@ -1507,6 +1509,7 @@ const translations = {
 
     // Missing
     enableHDHomeRun: 'Activer HDHomeRun',
+    directPlaylist: 'Playlist directe (contourner le proxy, exposer les identifiants du fournisseur)',
     useUrlToConfigurePlex: 'Utilisez l\'URL ci-dessous pour configurer Plex DVR ou Emby Live TV.',
     note: 'Note :',
     featureEmulatesHDHomeRun: 'Cette fonctionnalité émule un tuner HDHomeRun.',
@@ -2015,6 +2018,7 @@ const translations = {
 
     // Missing
     enableHDHomeRun: 'Ενεργοποίηση HDHomeRun',
+    directPlaylist: 'Άμεση playlist (παράκαμψη proxy, έκθεση διαπιστευτηρίων παρόχου)',
     useUrlToConfigurePlex: 'Χρησιμοποιήστε το παρακάτω URL για να ρυθμίσετε το Plex DVR ή το Emby Live TV.',
     note: 'Σημείωση:',
     featureEmulatesHDHomeRun: 'Αυτή η λειτουργία προσομοιώνει έναν δέκτη HDHomeRun.',

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(npx --no-install eslint src/)",
+      "Bash(node --check src/controllers/xtreamController.js)",
+      "Bash(node --check src/controllers/userController.js)",
+      "Bash(node --check src/database/db.js)",
+      "Bash(node --check src/database/migrations.js)",
+      "Bash(node --check public/app.js)",
+      "Bash(npx --no-install vitest run tests/user_controller.test.js tests/repo_smoke.test.js tests/migration_regression.test.js)"
+    ]
+  }
+}

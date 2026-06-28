@@ -778,6 +778,7 @@ function showEditUserModal(user) {
   const webuiAccess = user.webui_access !== undefined ? user.webui_access === 1 : true;
   document.getElementById('edit-user-webui-access').checked = webuiAccess;
   document.getElementById('edit-user-hdhr-enabled').checked = (user.hdhr_enabled === 1);
+  document.getElementById('edit-user-direct-playlist').checked = (user.direct_playlist === 1);
 
   // Set selected countries
   const allowedCountriesSelect = document.getElementById('edit-user-allowed-countries');
@@ -801,6 +802,7 @@ document.getElementById('edit-user-form').addEventListener('submit', async e => 
   const expiryDate = document.getElementById('edit-user-expiry-date').value;
   const webuiAccess = document.getElementById('edit-user-webui-access').checked;
   const hdhrEnabled = document.getElementById('edit-user-hdhr-enabled').checked;
+  const directPlaylist = document.getElementById('edit-user-direct-playlist').checked;
   const notes = document.getElementById('edit-user-notes').value;
 
   const allowedCountriesSelect = document.getElementById('edit-user-allowed-countries');
@@ -810,6 +812,7 @@ document.getElementById('edit-user-form').addEventListener('submit', async e => 
       username,
       webui_access: webuiAccess,
       hdhr_enabled: hdhrEnabled,
+      direct_playlist: directPlaylist,
       max_connections: maxConnections,
       expiry_date: expiryDate ? expiryDate : null,
       allowed_countries: allowedCountries || null,
