@@ -315,13 +315,17 @@ export const playerApi = async (req, res) => {
     }
 
     if (action === 'get_live_streams') {
+      const useDirect = !!user.direct_playlist;
+      const getProviderPass = useDirect ? buildProviderPasswordCache() : null;
       const categoryId = req.query.category_id ? String(req.query.category_id).trim() : null;
       let query = `
         SELECT uc.id as user_channel_id, uc.custom_name, uc.user_category_id, pc.*, cat.is_adult as category_is_adult,
                map.epg_channel_id as manual_epg_id
+               ${useDirect ? ', p.url as provider_url, p.username as provider_user, p.password as provider_pass' : ''}
         FROM user_categories cat
         JOIN user_channels uc ON cat.id = uc.user_category_id
         JOIN provider_channels pc ON pc.id = uc.provider_channel_id
+        ${useDirect ? 'JOIN providers p ON p.id = pc.provider_id' : ''}
         LEFT JOIN epg_channel_mappings map ON map.provider_channel_id = pc.id
         WHERE cat.user_id = ? AND pc.stream_type = 'live' AND uc.is_hidden = 0`;
       let params = [user.id];
@@ -342,6 +346,7 @@ export const playerApi = async (req, res) => {
 
       const nowStr = now.toString();
       return streamJsonResponse(res, stmt, params, (ch, i) => {
+        const directSource = useDirect ? (buildDirectStreamUrl(ch, getProviderPass, 'ts') || '') : '';
         let iconUrl = ch.logo || '';
         const displayName = ch.custom_name ? ch.custom_name : ch.name;
         return {
@@ -357,19 +362,23 @@ export const playerApi = async (req, res) => {
           category_ids: [Number(ch.user_category_id)],
           custom_sid: null,
           tv_archive: ch.tv_archive || 0,
-          direct_source: '',
+          direct_source: directSource,
           tv_archive_duration: ch.tv_archive_duration || 0
         };
       });
     }
 
     if (action === 'get_vod_streams') {
+      const useDirect = !!user.direct_playlist;
+      const getProviderPass = useDirect ? buildProviderPasswordCache() : null;
       const categoryId = req.query.category_id ? String(req.query.category_id).trim() : null;
       let query = `
         SELECT uc.id as user_channel_id, uc.custom_name, uc.user_category_id, pc.*, cat.is_adult as category_is_adult
+               ${useDirect ? ', p.url as provider_url, p.username as provider_user, p.password as provider_pass' : ''}
         FROM user_categories cat
         JOIN user_channels uc ON cat.id = uc.user_category_id
         JOIN provider_channels pc ON pc.id = uc.provider_channel_id
+        ${useDirect ? 'JOIN providers p ON p.id = pc.provider_id' : ''}
         WHERE cat.user_id = ? AND pc.stream_type = 'movie' AND uc.is_hidden = 0`;
       let params = [user.id];
       ({ query, params } = appendAllowedChannelFilter(query, params, shareScope.allowedChannelIds));
@@ -389,6 +398,7 @@ export const playerApi = async (req, res) => {
 
       const nowStr = now.toString();
       return streamJsonResponse(res, stmt, params, (ch, i) => {
+        const directSource = useDirect ? (buildDirectStreamUrl(ch, getProviderPass, 'mp4') || '') : '';
         const displayName = ch.custom_name ? ch.custom_name : ch.name;
         return {
           num: i + 1,
@@ -402,7 +412,7 @@ export const playerApi = async (req, res) => {
           category_id: String(ch.user_category_id),
           container_extension: ch.mime_type || 'mp4',
           custom_sid: null,
-          direct_source: ''
+          direct_source: directSource
         };
       });
     }
