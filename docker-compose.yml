@@ -1,6 +1,6 @@
 services:
   iptv-manager:
-    image: ghcr.io/bladestar2105/iptv-manager:latest
+    image: ghcr.io/videejay/iptv-manager:latest
     container_name: iptv-manager
     restart: unless-stopped
     ports:
